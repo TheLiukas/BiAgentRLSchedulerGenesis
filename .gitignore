@@ -3,3 +3,4 @@ scripts/RLControl/hover_env.py
 genesis
 __pycache__
 log/DronePose/ppo/events.*
+drone_env.py
