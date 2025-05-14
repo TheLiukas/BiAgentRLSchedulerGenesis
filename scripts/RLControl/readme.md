@@ -16,8 +16,6 @@ Wrapper dell'environment genesis per compatibilità con gymnasium -> tianshou.
 
 Utility per implementazione dell' early stop nel training, attualmente basato su valore assoluto.
 
-<link rel="manifest" href="https://readme.so/manifest.json"/>
-
 <link rel="preconnect" href="https://fonts.gstatic.com/"/>
 
 <link href="readme_files/css2.css" rel="stylesheet" data-optimized-fonts="true"/>
@@ -36,112 +34,6 @@ Utility per implementazione dell' early stop nel training, attualmente basato su
 
 <link as="script" rel="prefetch" href="readme_files/editor-13e6639215747f58006b.js"/>
 
-# RLControl
-
-## drone_rl.py
-
-Script per il training con tianshou
-
-## drone_rl_eval.py
-
-Script per sola valutazione dell'ultima best policy trovata con il training
-
-## env_drone.py
-
-Wrapper dell'environment genesis per compatibilità con gymnasium -> tianshou.
-
-## earlystoppingclass.py
-
-Utility per implementazione dell' early stop nel training, attualmente basato su valore assoluto.
-
-# RLControl
-
-## drone_rl.py
-
-Script per il training con tianshou
-
-## drone_rl_eval.py
-
-Script per sola valutazione dell'ultima best policy trovata con il training
-
-## env_drone.py
-
-Wrapper dell'environment genesis per compatibilità con gymnasium -> tianshou.
-
-## earlystoppingclass.py
-
-Utility per implementazione dell' early stop nel training, attualmente basato su valore assoluto.
-
-# RLControl
-
-## drone_rl.py
-
-Script per il training con tianshou
-
-## drone_rl_eval.py
-
-Script per sola valutazione dell'ultima best policy trovata con il training
-
-## env_drone.py
-
-Wrapper dell'environment genesis per compatibilità con gymnasium -> tianshou.
-
-## earlystoppingclass.py
-
-Utility per implementazione dell' early stop nel training, attualmente basato su valore assoluto.
-
-# RLControl
-
-## drone_rl.py
-
-Script per il training con tianshou
-
-## drone_rl_eval.py
-
-Script per sola valutazione dell'ultima best policy trovata con il training
-
-## env_drone.py
-
-Wrapper dell'environment genesis per compatibilità con gymnasium -> tianshou.
-
-## earlystoppingclass.py
-
-Utility per implementazione dell' early stop nel training, attualmente basato su valore assoluto.
-
-# RLControl
-
-## drone_rl.py
-
-Script per il training con tianshou
-
-## drone_rl_eval.py
-
-Script per sola valutazione dell'ultima best policy trovata con il training
-
-## env_drone.py
-
-Wrapper dell'environment genesis per compatibilità con gymnasium -> tianshou.
-
-## earlystoppingclass.py
-
-Utility per implementazione dell' early stop nel training, attualmente basato su valore assoluto.
-
-# RLControl
-
-## drone_rl.py
-
-Script per il training con tianshou
-
-## drone_rl_eval.py
-
-Script per sola valutazione dell'ultima best policy trovata con il training
-
-## env_drone.py
-
-Wrapper dell'environment genesis per compatibilità con gymnasium -> tianshou.
-
-## earlystoppingclass.py
-
-Utility per implementazione dell' early stop nel training, attualmente basato su valore assoluto.
-
 <link rel="icon" href="https://readme.so/favicon.ico"/>
+
+<link rel="manifest" href="https://readme.so/manifest.json"/>
