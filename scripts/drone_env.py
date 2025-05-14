@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import genesis as gs
 import time
-import gen_obstacles
+import scripts.utils.gen_obstacles as gen_obstacles
 
 
 class DroneController:
