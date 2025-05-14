@@ -7,7 +7,7 @@ FROM pytorch/pytorch:2.5.1-cuda${CUDA_VERSION}-cudnn9-devel AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ARG PYTHON_VERSION=3.11
-
+ARG PYTHON_MAJOR_MINOR=311
 # Install necessary packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -47,9 +47,10 @@ RUN wget https://github.com/Kitware/CMake/releases/download/v3.31.0-rc2/cmake-3.
 WORKDIR /workspace
 RUN git clone https://github.com/Genesis-Embodied-AI/Genesis.git && \
     cd Genesis && \
-    git submodule update --init --recursive
-COPY build_luisa.sh /workspace/build_luisa.sh
-RUN chmod +x ./build_luisa.sh && ./build_luisa.sh ${PYTHON_VERSION}
+    git submodule update --init --recursive && \
+    cp docker/build_luisa.sh .. && cd .. \
+    && chmod +x ./build_luisa.sh && ./build_luisa.sh ${PYTHON_VERSION}
+#COPY build_luisa.sh /workspace/build_luisa.sh
 
 # ===============================================================
 # Stage 2: Runtime Environment
@@ -57,6 +58,7 @@ RUN chmod +x ./build_luisa.sh && ./build_luisa.sh ${PYTHON_VERSION}
 FROM pytorch/pytorch:2.5.1-cuda${CUDA_VERSION}-cudnn9-devel
 
 ARG PYTHON_VERSION=3.11
+ARG PYTHON_MAJOR_MINOR=311
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NVIDIA_DRIVER_CAPABILITIES=all
 
@@ -91,12 +93,10 @@ RUN git clone https://github.com/Genesis-Embodied-AI/Genesis.git && \
     cd Genesis && \
     pip install . && \
     pip install --no-cache-dir PyOpenGL==3.1.5
-
 # ------------------------ Motion planning -----------------------
-RUN PYTHON_MAJOR_MINOR=$(echo ${PYTHON_VERSION} | tr -d '.') && \
-    wget https://github.com/ompl/ompl/releases/download/prerelease/ompl-1.6.0-cp${PYTHON_MAJOR_MINOR}-cp${PYTHON_MAJOR_MINOR}-manylinux_2_28_x86_64.whl && \
-    pip install ompl-1.6.0-cp${PYTHON_MAJOR_MINOR}-cp${PYTHON_MAJOR_MINOR}-manylinux_2_28_x86_64.whl && \
-    rm ompl-1.6.0-cp${PYTHON_MAJOR_MINOR}-cp${PYTHON_MAJOR_MINOR}-manylinux_2_28_x86_64.whl
+RUN wget https://github.com/ompl/ompl/releases/download/prerelease/ompl-1.7.0-cp${PYTHON_MAJOR_MINOR}-cp${PYTHON_MAJOR_MINOR}-manylinux_2_28_x86_64.whl && \
+    pip install ompl-1.7.0-cp${PYTHON_MAJOR_MINOR}-cp${PYTHON_MAJOR_MINOR}-manylinux_2_28_x86_64.whl && \
+    rm ompl-1.7.0-cp${PYTHON_MAJOR_MINOR}-cp${PYTHON_MAJOR_MINOR}-manylinux_2_28_x86_64.whl
 
 # -------------------- Surface Reconstruction --------------------
 # Set the LD_LIBRARY_PATH directly in the environment
@@ -110,10 +110,13 @@ COPY --from=builder /workspace/Genesis/genesis/ext/LuisaRender/build/bin /opt/co
 RUN cd /opt/conda/lib && \
     mv libstdc++.so.6 libstdc++.so.6.old && \
     ln -s /usr/lib/x86_64-linux-gnu/libstdc++.so.6 libstdc++.so.6
-
-COPY 10_nvidia.json /usr/share/glvnd/egl_vendor.d/10_nvidia.json
-COPY nvidia_icd.json /usr/share/vulkan/icd.d/nvidia_icd.json
-COPY nvidia_layers.json /etc/vulkan/implicit_layer.d/nvidia_layers.json
+WORKDIR /workspace
+RUN ls -lah Genesis/docker/
+RUN mv Genesis/docker/10_nvidia.json /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+RUN mkdir /usr/share/vulkan/icd.d/
+RUN mv Genesis/docker/nvidia_icd.json /usr/share/vulkan/icd.d/nvidia_icd.json
+RUN mkdir /usr/share/vulkan/implicit_layer.d/
+RUN mv Genesis/docker/nvidia_layers.json /etc/vulkan/implicit_layer.d/nvidia_layers.json
 
 # Install rsl_rl.
 
@@ -125,6 +128,9 @@ RUN pip install -e .
 
 # Install tensorboard.
 RUN pip install tensorboard
+
+# Install Tianshou latest
+RUN pip install git+https://github.com/thu-ml/tianshou.git@master --upgrade
 
 WORKDIR /workspace
 ENTRYPOINT ["/bin/bash"]
