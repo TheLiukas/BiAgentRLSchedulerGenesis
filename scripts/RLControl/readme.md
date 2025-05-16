@@ -3,6 +3,8 @@
 ## drone_rl.py
 
 Script per il training con tianshou
+### Tensorboard
+tensorboard --logdir log --host <ip>
 
 ## drone_rl_eval.py
 
