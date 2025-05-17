@@ -13,25 +13,29 @@ class EarlyStoppingCallback:
 
     :param patience: How many epochs to wait for improvement before stopping.
     :param min_delta: Minimum change in the monitored quantity to qualify as an improvement.
+    :param min_pct_delta: Minimum percentage change in the monitored quantity to qualify as an improvement.
     :param warmup: Number of initial epochs to ignore before starting to monitor.
     :param verbose: If True, prints messages when checking and stopping.
     """
-    def __init__(self,  patience: int = 10, min_delta: float = 0.1, warmup: int = 5, verbose: bool = True,):
+    def __init__(self,  patience: int = 10, min_delta: float = 0.1, min_pct_delta: float = 0.1, warmup: int = 5, verbose: bool = True,):
         if patience <= 0:
             raise ValueError("Patience must be a positive integer.")
         if min_delta < 0:
              raise ValueError("min_delta must be non-negative.")
+        if min_pct_delta < 0:
+             raise ValueError("min_pct_delta must be non-negative.")     
         if warmup < 0:
             raise ValueError("warmup must be non-negative.")
 
         
         self.patience = patience
         self.min_delta = min_delta
+        self.min_pct_delta=min_pct_delta
         self.warmup = warmup
         self.verbose = verbose
 
         # Use deque to automatically keep track of the last 'patience' rewards
-        self.reward_history = deque(maxlen=self.patience)
+        self.reward_history:deque = deque(maxlen=self.patience)
         self.epoch_count = 0
         self.best_reward = -np.inf # Keep track of the best reward seen *after* warmup
 
@@ -48,6 +52,9 @@ class EarlyStoppingCallback:
         if self.trainer==None:
             self.epoch_count += 1
         else :
+            if self.epoch_count==self.trainer.epoch:
+                self.best_reward = max(self.best_reward, mean_rewards)
+                return False
             self.epoch_count=self.trainer.epoch
             #log.info(f"[EarlyStopping] Warmup epoch {self.epoch_count}/{self.warmup}. Current reward: {mean_rewards:.4f}")
         # --- Warmup Phase ---
@@ -61,37 +68,29 @@ class EarlyStoppingCallback:
 
         # --- Monitoring Phase ---
         # Add current reward to history (deque handles the size limit)
-        self.reward_history.append(mean_rewards)
+        
+        
 
         # Check if we have enough history to make a decision
         if len(self.reward_history) < self.patience:
             # Not enough history yet, update best_reward and continue
+            
             self.best_reward = max(self.best_reward, mean_rewards)
             if self.verbose:
-                 log.info(f"[EarlyStopping] Collecting history ({len(self.reward_history)}/{self.patience}). Current reward: {mean_rewards:.4f}")
+                log.info(f"[EarlyStopping] Collecting history ({len(self.reward_history)}/{self.patience}). Current reward: {mean_rewards:.4f}")
+                self.reward_history.append(mean_rewards)
             return False
 
-        # --- Stagnation Check ---
-        # Check if the reward 'patience' epochs ago plus delta is greater than all rewards since then
-        # An alternative: Check if the *best* reward seen recently is not much better than oldest in window
-        # Simpler check: Is the current reward significantly better than the oldest reward in the window?
-        oldest_reward = self.reward_history[0] # Reward from 'patience' epochs ago
-
-        # More robust check: Has the *best* reward seen in the last 'patience' epochs improved
-        # significantly compared to the best reward seen *before* this window started?
-        # Let's stick to a simpler check first: Lack of improvement over the window.
-        # Improvement = current_reward - oldest_reward
-        # If improvement < min_delta, we might stop.
-
-        # Refined check: Consider the best reward in the current window
-        best_reward_in_window = max(self.reward_history)
-
+        reward_delta=mean_rewards-self.best_reward 
+        reward_delta_pct=reward_delta/self.best_reward
         # Check 1: Has the best reward overall improved recently?
-        if best_reward_in_window > self.best_reward + self.min_delta:
+        if reward_delta > self.min_delta or reward_delta_pct > self.min_pct_delta:
              # Significant improvement found, update best reward and reset patience implicitly
              if self.verbose:
-                  log.info(f"[EarlyStopping] Improvement detected! Best reward updated from {self.best_reward:.4f} to {best_reward_in_window:.4f}")
-             self.best_reward = best_reward_in_window
+                  log.info(f"[EarlyStopping] Improvement detected! Best reward updated from {self.best_reward:.4f} to {mean_rewards:.4f}")
+             self.best_reward = max(self.best_reward, mean_rewards)     
+             self.reward_history.clear()
+             self.reward_history.append(mean_rewards)
              # Even though deque is fixed size, finding improvement means we shouldn't stop
              return False # Continue training
 
@@ -102,5 +101,5 @@ class EarlyStoppingCallback:
         # 3. The best reward in the last 'patience' epochs is NOT significantly better
         #    than the best reward seen before this window. -> Implies stagnation.
         if self.verbose:
-            log.warning(f"[EarlyStopping] No significant improvement for {self.patience} epochs (current: {mean_rewards:.4f}, best_in_window: {best_reward_in_window:.4f}, overall_best: {self.best_reward:.4f}). Stopping.")
+            log.warning(f"[EarlyStopping] No significant improvement for {self.patience} epochs (current: {mean_rewards:.4f}, overall_best: {self.best_reward:.4f}). Stopping.")
         return True # Stop training
