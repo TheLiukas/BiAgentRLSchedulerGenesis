@@ -8,4 +8,4 @@ docker run --gpus all --rm -it \
 -v ~/.Xauthority:/root/.Xauthority \
 -e XAUTHORITY=/root/.Xauthority \
 -v $PWD:/workspace \
-bi_agent_rl_scheduler_genesis
+bi_agent_rl_scheduler_genesis_wandb

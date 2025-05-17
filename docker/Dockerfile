@@ -132,5 +132,8 @@ RUN pip install tensorboard
 # Install Tianshou latest
 RUN pip install git+https://github.com/thu-ml/tianshou.git@master --upgrade
 
+# Install WANDB
+RUN export WANDB_API_KEY=$(cat wanddb_api_key) && pip install wandb && wandb login
+
 WORKDIR /workspace
 ENTRYPOINT ["/bin/bash"]

@@ -9,3 +9,5 @@ log/**/events.*
 log
 logs
 scripts/drone_env.py
+
+docker/wanddb_api_key
