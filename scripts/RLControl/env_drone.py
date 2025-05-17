@@ -5,6 +5,7 @@ import torch
 import math
 import genesis as gs
 from genesis.utils.geom import quat_to_xyz, transform_by_quat, inv_quat, transform_quat_by_quat
+from genesis.engine.entities import DroneEntity
 #import gen_obstacles
 import numpy as np
 from tianshou.env import BaseVectorEnv
@@ -28,7 +29,6 @@ class DroneEnv(gym.Env):
         self.num_actions = env_cfg["num_actions"]
         self.num_commands = command_cfg["num_commands"]
         
-        self.simulate_action_latency = env_cfg["simulate_action_latency"]
         self.dt = 0.01  # run in 100hz
         self.max_episode_length = math.ceil(env_cfg["episode_length_s"] / self.dt)
 
@@ -123,7 +123,7 @@ class DroneEnv(gym.Env):
         self.base_init_pos = torch.tensor(self.env_cfg["base_init_pos"], device=self.device)
         self.base_init_quat = torch.tensor(self.env_cfg["base_init_quat"], device=self.device)
         self.inv_base_init_quat = inv_quat(self.base_init_quat)
-        self.drone = self.scene.add_entity(gs.morphs.Drone(file="urdf/drones/cf2x.urdf"))
+        self.drone:DroneEntity = self.scene.add_entity(gs.morphs.Drone(file="urdf/drones/cf2x.urdf"))
         print("Drone Added")
         # build scene
         self.scene.build(n_envs=num_envs)
@@ -193,7 +193,8 @@ class DroneEnv(gym.Env):
         # 14468 is hover rpm
         self.drone.set_propellels_rpm((1 + exec_actions * 0.8) * 14468.429183500699)
         self.scene.step()
-
+    
+       
         # update buffers
         self.episode_length_buf += 1
         self.last_base_pos[:] = self.base_pos[:]
@@ -266,7 +267,7 @@ class DroneEnv(gym.Env):
                 info_redux.append( {
                         "distance": self.rel_pos[ind].cuda(),
                         "position": self.base_pos[ind].cuda(),
-                        "orientation": self.base_euler[ind].cuda(),
+                        "orientation": self.base_euler[ind].cuda()
                     })
             return np.array(info_redux)
             

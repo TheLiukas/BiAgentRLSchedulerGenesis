@@ -1,4 +1,5 @@
 from  datetime import datetime
+import json
 import torch
 import tianshou as ts
 from tianshou.utils.net.common import Net
@@ -17,6 +18,13 @@ from torch.distributions import Independent, Normal
 from hover_env import HoverEnv
 from earlystoppingclass import EarlyStoppingCallback
 
+
+def save_params_to_log(logdir,log_par):
+    with open(logdir+"/params.json","x+") as file:
+        json.dump(log_par,file)
+
+
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--task', type=str, default='DronePose'+str(datetime.now()))
@@ -26,7 +34,7 @@ def get_args():
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--epoch', type=int, default=100)
-    parser.add_argument('--step-per-epoch', type=int, default=8192*20)
+    parser.add_argument('--step-per-epoch', type=int, default=30000)
     
     # PPO specific arguments
     parser.add_argument('--repeat-per-collect', type=int, default=10) # PPO updates per data collection
@@ -47,7 +55,7 @@ def get_args():
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     parser.add_argument("-e", "--exp_name", type=str, default="drone-hovering_"+str(datetime.now()))
     parser.add_argument("-B", "--num_envs", type=int, default=8192)
-    parser.add_argument("--max_iterations", type=int, default=8192*20)
+    parser.add_argument("--max_iterations", type=int, default=30000)
     args = parser.parse_args()
     return args
 
@@ -111,10 +119,8 @@ def get_cfgs():
         # base pose
         "base_init_pos": [0.0, 0.0, 1.0],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
-        "episode_length_s": 20.0,
+        "episode_length_s": 1000.0,
         "at_target_threshold": 0.1,
-        "resampling_time_s": 3.0,
-        "simulate_action_latency": True,
         "clip_actions": 1.0,
         # visualization
         "visualize_target": False,
@@ -132,18 +138,18 @@ def get_cfgs():
     reward_cfg = {
         "yaw_lambda": -10.0,
         "reward_scales": {
-            "target": 10.0,
+            "target": 100.0,
             "smooth": -1e-4,
             "yaw": 0.01,
-            "angular": -2e-3,
-            "crash": -10.0,
+            "angular": -2e-4,
+            "crash": -150.0,
         },
     }
     command_cfg = {
         "num_commands": 3,
-        "pos_x_range": [-2.0, 2.0],
-        "pos_y_range": [-2.0, 2.0],
-        "pos_z_range": [0.5, 1.0],
+        "pos_x_range": [-1.0, 1.0],
+        "pos_y_range": [-1.0, 1.0],
+        "pos_z_range": [1.0, 1.0],
         "hold_time" : 0
     }
 
@@ -154,6 +160,13 @@ def train_drone_ppo(args=get_args()):
 
 
     env_cfg, obs_cfg, reward_cfg, command_cfg = get_cfgs()
+    # --- Logger ---
+    log_path = os.path.join(args.logdir, args.task, 'ppo')
+    writer = SummaryWriter(log_path)
+    logger = ts.utils.TensorboardLogger(writer)
+     # -- Logging parameters --
+    params_dict=env_cfg | obs_cfg | reward_cfg | command_cfg | args.__dict__
+    save_params_to_log(logdir=log_path,log_par=params_dict)
 
     train_envs = DroneEnv(  num_envs=args.training_num,
         env_cfg=env_cfg,
@@ -243,10 +256,7 @@ def train_drone_ppo(args=get_args()):
     )
     test_collector = Collector(policy, test_envs)
 
-    # --- Logger ---
-    log_path = os.path.join(args.logdir, args.task, 'ppo')
-    writer = SummaryWriter(log_path)
-    logger = ts.utils.TensorboardLogger(writer)
+ 
     
     
     # --- Callback functions ---
@@ -256,6 +266,7 @@ def train_drone_ppo(args=get_args()):
     early_stopper = EarlyStoppingCallback(
         patience=20,
         min_delta=0.1,
+        min_pct_delta=0.05,
         warmup=30,
         verbose=True
     )
@@ -279,6 +290,10 @@ def train_drone_ppo(args=get_args()):
 
     early_stopper.setTrainer(trainer)
     
+ 
+
+
+
     # --- Run Training ---
     print(f"Starting PPO training on {args.device}")
     trainer.run()
@@ -312,3 +327,5 @@ def train_drone_ppo(args=get_args()):
 
 if __name__ == '__main__':
     train_drone_ppo()
+
+
