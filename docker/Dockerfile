@@ -133,6 +133,9 @@ RUN pip install tensorboard
 RUN pip install git+https://github.com/thu-ml/tianshou.git@master --upgrade
 
 # Install WANDB
+WORKDIR /workspace
+COPY docker/wanddb_api_key wanddb_api_key
+RUN ls -lah .
 RUN export WANDB_API_KEY=$(cat wanddb_api_key) && pip install wandb && wandb login
 
 WORKDIR /workspace
