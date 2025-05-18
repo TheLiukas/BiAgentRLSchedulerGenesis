@@ -82,7 +82,7 @@ class EarlyStoppingCallback:
             return False
 
         reward_delta=mean_rewards-self.best_reward 
-        reward_delta_pct=reward_delta/self.best_reward
+        reward_delta_pct=reward_delta/np.abs(self.best_reward)
         # Check 1: Has the best reward overall improved recently?
         if reward_delta > self.min_delta or reward_delta_pct > self.min_pct_delta:
              # Significant improvement found, update best reward and reset patience implicitly

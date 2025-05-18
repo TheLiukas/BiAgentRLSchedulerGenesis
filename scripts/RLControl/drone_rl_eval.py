@@ -220,8 +220,8 @@ def eval_drone_ppo(args=get_args()):
 
 
     # --- Logger ---
-    log_path = os.path.join(args.logdir, args.task, 'ppo')
-
+    #log_path = os.path.join(args.logdir, args.task, 'ppo')
+    log_path=os.path.join("log",max(os.listdir("log"),'ppo'))
     # --- Example: Evaluate the trained policy ---
     print("Evaluating trained policy...")
     policy.load_state_dict(torch.load(os.path.join(log_path, 'policy.pth'), map_location=args.device))
