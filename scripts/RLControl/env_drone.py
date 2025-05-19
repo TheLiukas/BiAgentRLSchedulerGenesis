@@ -378,11 +378,17 @@ class DroneEnv(gym.Env):
     def _reward_target(self):
         target_rew = torch.sum(torch.square(self.last_rel_pos), dim=1) - torch.sum(torch.square(self.rel_pos), dim=1)
         nans=any(target_rew.isnan())
+        if nans:
+            print(target_rew.isnan())
+            target_rew[target_rew.isnan()]=0
         return target_rew
 
     def _reward_smooth(self):
         smooth_rew = torch.sum(torch.square(self.actions - self.last_actions), dim=1)
         nans=any(smooth_rew.isnan())
+        if nans:
+            print(smooth_rew.isnan())
+            smooth_rew[smooth_rew.isnan()]=0
         return smooth_rew
 
     def _reward_yaw(self):
@@ -390,17 +396,26 @@ class DroneEnv(gym.Env):
         yaw = torch.where(yaw > 180, yaw - 360, yaw) / 180 * 3.14159  # use rad for yaw_reward
         yaw_rew = torch.exp(self.reward_cfg["yaw_lambda"] * torch.abs(yaw))
         nans=any(yaw_rew.isnan())
+        if nans:
+            print(yaw_rew.isnan())
+            yaw_rew[yaw_rew.isnan()]=0
         return yaw_rew
 
     def _reward_angular(self):
         angular_rew = torch.norm(self.base_ang_vel / 3.14159, dim=1)
         nans=any(angular_rew.isnan())
+        if nans:
+            print(angular_rew.isnan())
+            angular_rew[angular_rew.isnan()]=0
         return angular_rew
 
     def _reward_crash(self):
         crash_rew = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
         crash_rew[self.crash_condition] = 1
         nans=any(crash_rew.isnan())
+        if nans:
+            print(crash_rew.isnan())
+            crash_rew[crash_rew.isnan()]=0
         return crash_rew
     
 

@@ -16,7 +16,6 @@ import os
 import argparse
 
 from torch.distributions import Independent, Normal
-from hover_env import HoverEnv
 from earlystoppingclass import EarlyStoppingCallback
 
 
@@ -40,7 +39,7 @@ def get_args():
     # PPO specific arguments
     parser.add_argument('--repeat-per-collect', type=int, default=10) # PPO updates per data collection
     parser.add_argument('--batch-size', type=int, default=256) # Mini-batch size for PPO updates
-    parser.add_argument('--step-per-collect', type=int, default=8192*10) # Steps collected before update
+    parser.add_argument('--step-per-collect', type=int, default=8192*5) # Steps collected before update
     parser.add_argument('--vf-coef', type=float, default=0.5) # Value function loss coefficient
     parser.add_argument('--ent-coef', type=float, default=0.01) # Entropy coefficient
     parser.add_argument('--eps-clip', type=float, default=0.2) # PPO clipping epsilon
@@ -301,7 +300,7 @@ def train_drone_ppo(args=get_args()):
     print(f"Starting PPO training on {args.device}")
     try:
         trainer.run()
-    except KeyboardInterrupt:
+    except :
         print("Stopped training")
         save_best_fn(trainer.policy)
    
