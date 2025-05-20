@@ -4,6 +4,7 @@ import torch
 import tianshou as ts
 from tianshou.utils.net.common import Net
 from tianshou.utils.net.continuous import ActorProb, Critic
+from torch.nn.modules import Tanh
 from tianshou.utils.logger.wandb import WandbLogger
 from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.env import SubprocVectorEnv
@@ -201,12 +202,12 @@ def train_drone_ppo(args=get_args()):
     args.max_action = train_envs.action_space.high[0] # Assumes symmetric [-max, max] action space after scaling
 
     # Model
-    net_a = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+    net_a = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device,activation=Tanh)
     actor = ActorProb(
         net_a, args.action_shape, unbounded=True, device=args.device
     ).to(args.device)
 
-    net_c = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+    net_c = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device,activation=Tanh)
     critic = Critic(net_c, device=args.device).to(args.device)
 
 
@@ -253,7 +254,7 @@ def train_drone_ppo(args=get_args()):
     train_collector = Collector(
         policy,
         train_envs,
-        VectorReplayBuffer(args.buffer_size, len(train_envs)), # Total buffer size across envs
+        VectorReplayBuffer(len(train_envs)*500, len(train_envs)), # Total buffer size across envs
         # exploration_noise=True # Handled by policy's stochastic nature
     )
     test_collector = Collector(policy, test_envs)
@@ -281,6 +282,7 @@ def train_drone_ppo(args=get_args()):
         test_collector=test_collector,
         max_epoch=args.epoch,
         save_best_fn=save_best_fn,
+        update_per_step=1/10,
         step_per_epoch=args.step_per_epoch,
         repeat_per_collect=args.repeat_per_collect,
         episode_per_test=args.test_episodes, # Run test_num episodes for testing
