@@ -10,6 +10,7 @@ from tianshou.env import SubprocVectorEnv
 from tianshou.trainer import OnpolicyTrainer
 from tianshou.policy import PPOPolicy
 from torch.utils.tensorboard import SummaryWriter
+import logging as logLevel
 import numpy as np
 from env_drone import DroneEnv
 import os
@@ -34,12 +35,12 @@ def get_args():
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--epoch', type=int, default=100)
-    parser.add_argument('--step-per-epoch', type=int, default=300000)
+    parser.add_argument('--step-per-epoch', type=int, default=30000)
     
     # PPO specific arguments
     parser.add_argument('--repeat-per-collect', type=int, default=10) # PPO updates per data collection
-    parser.add_argument('--batch-size', type=int, default=256) # Mini-batch size for PPO updates
-    parser.add_argument('--step-per-collect', type=int, default=8192*5) # Steps collected before update
+    parser.add_argument('--batch-size', type=int, default=4) # Mini-batch size for PPO updates
+    parser.add_argument('--step-per-collect', type=int, default=2046) # Steps collected before update
     parser.add_argument('--vf-coef', type=float, default=0.5) # Value function loss coefficient
     parser.add_argument('--ent-coef', type=float, default=0.01) # Entropy coefficient
     parser.add_argument('--eps-clip', type=float, default=0.2) # PPO clipping epsilon
@@ -50,12 +51,15 @@ def get_args():
 
     # Trainer
 
-    parser.add_argument('--training-num', type=int, default=8192) # Number of parallel envs for training
+    parser.add_argument('--training-num', type=int, default=10) # Number of parallel envs for training
     parser.add_argument('--test-num', type=int, default=100) # Number of parallel envs for testing
-    parser.add_argument('--test-episodes', type=int, default=5)
+    parser.add_argument('--test-episodes', type=int, default=100*5)
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument('--render', type=float, default=0) # Not used in this setup directly
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Genesis
+    parser.add_argument("-v", "--verbose", action="store_true", default=True)
 
     args = parser.parse_args()
     return args
@@ -139,11 +143,11 @@ def get_cfgs():
     reward_cfg = {
         "yaw_lambda": -10.0,
         "reward_scales": {
-            "target": 100000.0,
+            "target": 10.0,
             "smooth": -1e-2,
             "yaw": 0.1,
             "angular": -2e-4,
-            "crash": -10000.0,
+            "crash": -15.0,
         },
     }
     command_cfg = {
@@ -170,13 +174,17 @@ def train_drone_ppo(args=get_args()):
     params_dict=env_cfg | obs_cfg | reward_cfg | command_cfg | args.__dict__
     save_params_to_log(logdir=log_path,log_par=params_dict)
 
+    genesis_logging=logLevel.INFO if args.verbose else logLevel.ERROR
+
     train_envs = DroneEnv(  num_envs=args.training_num,
         env_cfg=env_cfg,
         obs_cfg=obs_cfg,
         reward_cfg=reward_cfg,
         command_cfg=command_cfg,
         show_viewer=False,
-        device="cuda",seed=args.seed
+        device="cuda",seed=args.seed,
+        n_render_env=[0],
+        log_level=genesis_logging
     )
     test_envs= DroneEnv(  num_envs=args.test_num,
         env_cfg=env_cfg,
@@ -184,7 +192,9 @@ def train_drone_ppo(args=get_args()):
         reward_cfg=reward_cfg,
         command_cfg=command_cfg,
         show_viewer=False,
-        device="cuda",seed=args.seed
+        device="cuda",seed=args.seed,
+        n_render_env=[0],
+        log_level=genesis_logging
     )
 
 

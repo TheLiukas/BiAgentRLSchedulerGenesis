@@ -16,7 +16,7 @@ def gs_rand_float(lower, upper, shape, device):
 
 
 class DroneEnv(gym.Env):
-    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg,seed, show_viewer=False,device="cuda"):
+    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg,seed, show_viewer=False,device="cuda",n_render_env=None,log_level=40):
         print("In Drone ENV")
         self.device = torch.device(device)
 
@@ -69,7 +69,7 @@ class DroneEnv(gym.Env):
 
 
         if not gs._initialized:
-            gs.init(backend=gs.gpu,debug=False,precision="32")  
+            gs.init(backend=gs.gpu,debug=False,precision="32",logging_level=log_level)  
         
         self.scene = gs.Scene(
         sim_options=gs.options.SimOptions(dt= 0.01 , substeps=2),
@@ -79,7 +79,7 @@ class DroneEnv(gym.Env):
             camera_lookat=(0.0, 0.0, 1.0),
             camera_fov=40,
         ),
-        vis_options=gs.options.VisOptions(),
+        vis_options=gs.options.VisOptions(rendered_envs_idx=n_render_env),
         rigid_options=gs.options.RigidOptions(
             dt=self.dt ,
             constraint_solver=gs.constraint_solver.Newton,
@@ -319,8 +319,8 @@ class DroneEnv(gym.Env):
             return
 
         # reset base
-        self.base_pos[env_id] = torch.rand((len(env_id), 3), device=self.device, dtype=gs.tc_float)#self.base_init_pos
-        self.last_base_pos[env_id] = self.base_pos[env_id].clone()#self.base_init_pos
+        self.base_pos[env_id] = self.base_init_pos#torch.rand((len(env_id), 3), device=self.device, dtype=gs.tc_float)#self.base_init_pos
+        self.last_base_pos[env_id] = self.base_init_pos#self.base_pos[env_id].clone()
         self.rel_pos = self.commands - self.base_pos
         self.last_rel_pos = self.commands - self.last_base_pos
         self.base_quat[env_id] = self.base_init_quat.reshape(1, -1)
