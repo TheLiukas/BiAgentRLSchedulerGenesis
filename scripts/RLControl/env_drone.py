@@ -72,7 +72,7 @@ class DroneEnv(gym.Env):
             gs.init(backend=gs.gpu,debug=False,precision="32",logging_level=log_level)  
         
         self.scene = gs.Scene(
-        sim_options=gs.options.SimOptions(dt= 0.01 , substeps=2),
+        sim_options=gs.options.SimOptions(dt= 0.01 , substeps=1),
         viewer_options=gs.options.ViewerOptions(
             max_FPS=env_cfg["max_visualize_FPS"],
             camera_pos=(3.0, 0.0, 3.0),
@@ -238,16 +238,16 @@ class DroneEnv(gym.Env):
         )#| self.crash_condition
         #self.terminated = (self.episode_length_buf > self.max_episode_length) | self.crash_condition
         #self.terminated = self.crash_condition
-
+        self.reset_buf = (self.episode_length_buf > self.max_episode_length) | self.crash_condition
 
         time_out_idx = (self.episode_length_buf > self.max_episode_length)
         self.extras["time_outs"] = torch.zeros_like(self.reset_buf, device=self.device, dtype=gs.tc_float)
         self.extras["time_outs"][time_out_idx] = 1.0
         self.terminated=self.crash_condition.cpu().numpy()
         self.truncated=time_out_idx.cpu().numpy()
-        self.base_pos[self.crash_condition] = torch.rand((len(torch.where(self.crash_condition)), 3), device=self.device, dtype=gs.tc_float)#self.base_init_pos
-        self.base_quat[self.crash_condition] = self.base_init_quat.reshape(1, -1)
-
+        #self.base_pos[self.crash_condition] = torch.rand((len(torch.where(self.crash_condition)), 3), device=self.device, dtype=gs.tc_float)#self.base_init_pos
+        #self.base_quat[self.crash_condition] = self.base_init_quat.reshape(1, -1)
+        self.reset_idx(self.reset_buf.nonzero(as_tuple=False).flatten())
         # compute reward
         self.rew_buf[:] = 0.0
         for name, reward_func in self.reward_functions.items():
@@ -346,7 +346,7 @@ class DroneEnv(gym.Env):
         self.last_actions[env_id] = 0.0
         self.episode_length_buf[env_id] = 0
         self.reset_buf[env_id] = True
-        self.crash_condition[env_id]=False
+        #self.crash_condition[env_id]=False
         # fill extras
         self.extras["episode"] = {}
         for key in self.episode_sums.keys():
@@ -359,7 +359,7 @@ class DroneEnv(gym.Env):
 
     def reset(self,env_id=None):
         if env_id is not None:
-            print(env_id)
+        
             self.reset_buf[env_id]=True
             self.reset_idx(env_id)
         else: 

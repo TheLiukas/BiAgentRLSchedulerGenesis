@@ -31,36 +31,36 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--task', type=str, default='DronePose'+str(datetime.now()))
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--buffer-size', type=int, default=4096) # PPO typically uses steps_per_collect
+    parser.add_argument('--buffer-size-per-env', type=int, default=10000) 
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[128, 128])
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--gamma', type=float, default=0.99)
-    parser.add_argument('--epoch', type=int, default=100)
-    parser.add_argument('--step-per-epoch', type=int, default=30000)
+    parser.add_argument('--epoch', type=int, default=10)
+    parser.add_argument('--step-per-epoch', type=int, default=301000)
     
     # PPO specific arguments
     parser.add_argument('--repeat-per-collect', type=int, default=10) # PPO updates per data collection
     parser.add_argument('--batch-size', type=int, default=4) # Mini-batch size for PPO updates
-    parser.add_argument('--step-per-collect', type=int, default=2046) # Steps collected before update
+    parser.add_argument('--step-per-collect', type=int, default=2040) # Steps collected before update
     parser.add_argument('--vf-coef', type=float, default=0.5) # Value function loss coefficient
     parser.add_argument('--ent-coef', type=float, default=0.01) # Entropy coefficient
     parser.add_argument('--eps-clip', type=float, default=0.2) # PPO clipping epsilon
     parser.add_argument('--gae-lambda', type=float, default=0.95) # Generalized Advantage Estimation lambda
     parser.add_argument('--rew-norm', type=int, default=0) # Reward normalization
     parser.add_argument('--bound-action-method', type=str, default="clip") # Action bounding
-    parser.add_argument('--max-grad-norm', type=float, default=0.5)
+    parser.add_argument('--max-grad-norm', type=float, default=1.0)
 
     # Trainer
 
     parser.add_argument('--training-num', type=int, default=10) # Number of parallel envs for training
-    parser.add_argument('--test-num', type=int, default=100) # Number of parallel envs for testing
-    parser.add_argument('--test-episodes', type=int, default=100*5)
+    parser.add_argument('--test-num', type=int, default=10) # Number of parallel envs for testing
+    parser.add_argument('--test-episodes', type=int, default=10)
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument('--render', type=float, default=0) # Not used in this setup directly
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     
     # Genesis
-    parser.add_argument("-v", "--verbose", action="store_true", default=True)
+    parser.add_argument("-v", "--verbose", action="store_true", default=False)
 
     args = parser.parse_args()
     return args
@@ -119,13 +119,13 @@ def get_cfgs():
         "termination_if_roll_greater_than": 180,  # degree
         "termination_if_pitch_greater_than": 180,
         "termination_if_close_to_ground": 0.1,
-        "termination_if_x_greater_than": 4.0,
-        "termination_if_y_greater_than": 4.0,
+        "termination_if_x_greater_than": 3.0,
+        "termination_if_y_greater_than": 3.0,
         "termination_if_z_greater_than": 2.0,
         # base pose
         "base_init_pos": [0.0, 0.0, 1.0],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
-        "episode_length_s": 60.0,
+        "episode_length_s": 15.0,
         "at_target_threshold": 0.1,
         "clip_actions": 1.0,
         # visualization
@@ -175,7 +175,7 @@ def train_drone_ppo(args=get_args()):
     params_dict=env_cfg | obs_cfg | reward_cfg | command_cfg | args.__dict__
     save_params_to_log(logdir=log_path,log_par=params_dict)
 
-    genesis_logging=logLevel.INFO if args.verbose else logLevel.ERROR
+    genesis_logging=logLevel.INFO if args.verbose else logLevel.WARNING
 
     train_envs = DroneEnv(  num_envs=args.training_num,
         env_cfg=env_cfg,
@@ -264,7 +264,7 @@ def train_drone_ppo(args=get_args()):
     train_collector = Collector(
         policy,
         train_envs,
-        VectorReplayBuffer(len(train_envs)*500, len(train_envs)), # Total buffer size across envs
+        VectorReplayBuffer(len(train_envs)*args.buffer_size_per_env, len(train_envs)), # Total buffer size across envs
         # exploration_noise=True # Handled by policy's stochastic nature
     )
     test_collector = Collector(policy, test_envs)
@@ -277,10 +277,10 @@ def train_drone_ppo(args=get_args()):
         torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth'))
 
     early_stopper = EarlyStoppingCallback(
-        patience=20,
+        patience=10,
         min_delta=0.1,
-        min_pct_delta=0.05,
-        warmup=30,
+        min_pct_delta=0.1,
+        warmup=15,
         verbose=True
     )
 
@@ -292,13 +292,13 @@ def train_drone_ppo(args=get_args()):
         test_collector=test_collector,
         max_epoch=args.epoch,
         save_best_fn=save_best_fn,
-        update_per_step=1/10,
         step_per_epoch=args.step_per_epoch,
         repeat_per_collect=args.repeat_per_collect,
         episode_per_test=args.test_episodes, # Run test_num episodes for testing
         batch_size=args.batch_size,
         step_per_collect=args.step_per_collect,
         stop_fn=early_stopper,
+        verbose=False,
         logger=logger
     )#.run()
 
