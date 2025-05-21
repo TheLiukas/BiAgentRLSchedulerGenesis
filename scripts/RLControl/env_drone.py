@@ -380,7 +380,7 @@ class DroneEnv(gym.Env):
         nans=any(target_rew.isnan())
         if nans:
             print(target_rew.isnan())
-            target_rew[target_rew.isnan()]=0
+            target_rew=torch.nan_to_num(target_rew)
         return target_rew
 
     def _reward_smooth(self):
@@ -388,7 +388,7 @@ class DroneEnv(gym.Env):
         nans=any(smooth_rew.isnan())
         if nans:
             print(smooth_rew.isnan())
-            smooth_rew[smooth_rew.isnan()]=0
+            smooth_rew=torch.nan_to_num(smooth_rew)
         return smooth_rew
 
     def _reward_yaw(self):
@@ -398,7 +398,7 @@ class DroneEnv(gym.Env):
         nans=any(yaw_rew.isnan())
         if nans:
             print(yaw_rew.isnan())
-            yaw_rew[yaw_rew.isnan()]=0
+            yaw_rew=torch.nan_to_num(yaw_rew)
         return yaw_rew
 
     def _reward_angular(self):
@@ -406,7 +406,7 @@ class DroneEnv(gym.Env):
         nans=any(angular_rew.isnan())
         if nans:
             print(angular_rew.isnan())
-            angular_rew[angular_rew.isnan()]=0
+            angular_rew=torch.nan_to_num(angular_rew)
         return angular_rew
 
     def _reward_crash(self):
