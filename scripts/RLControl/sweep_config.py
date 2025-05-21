@@ -13,6 +13,7 @@ sweep_config = {
         'goal': 'maximize'
     },
     'parameters': {
+        'learning_rate':{'values': [3e-4, 5e-4, 1e-3, 1e-4]},
         'repeat_per_collect': {'values': [1, 2, 5, 10, 15]},
         'step_per_epoch': {'values': [1000,2000,5000,10000,20000,50000]},
         'step_per_collect': {'values': [100,200,500,1000,2000,5000]},
@@ -22,7 +23,8 @@ sweep_config = {
 
 sweep_id = wandb.sweep(
   sweep=sweep_config,
-  project='drone-ppo-navigation-target'
+  entity="mdianaRLSched",
+  project="drone"
   )
 
 print(sweep_id)

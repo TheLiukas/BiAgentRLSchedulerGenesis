@@ -23,7 +23,8 @@ from earlystoppingclass import EarlyStoppingCallback
 
 
 def save_params_to_log(logdir,log_par):
-    with open(logdir+"/params.json","x+") as file:
+    os.makedirs(logdir,exist_ok=True)
+    with open(logdir+"/params.json","x") as file:
         json.dump(log_par,file)
 
 
@@ -37,12 +38,12 @@ def get_args():
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--epoch', type=int, default=10)
-    parser.add_argument('--step-per-epoch', type=int, default=301000)
+    parser.add_argument('--step-per-epoch', type=int, default=2500)
     
     # PPO specific arguments
     parser.add_argument('--repeat-per-collect', type=int, default=10) # PPO updates per data collection
     parser.add_argument('--batch-size', type=int, default=4) # Mini-batch size for PPO updates
-    parser.add_argument('--step-per-collect', type=int, default=2040) # Steps collected before update
+    parser.add_argument('--step-per-collect', type=int, default=1000) # Steps collected before update
     parser.add_argument('--vf-coef', type=float, default=0.5) # Value function loss coefficient
     parser.add_argument('--ent-coef', type=float, default=0.01) # Entropy coefficient
     parser.add_argument('--eps-clip', type=float, default=0.2) # PPO clipping epsilon
@@ -168,14 +169,17 @@ def train_drone_ppo(args=get_args()):
 
     env_cfg, obs_cfg, reward_cfg, command_cfg = get_cfgs()
     # --- Logger ---
-    log_path = os.path.join(args.logdir, args.task, 'ppo')
-    #writer = SummaryWriter(log_path)
     wandb.login()
-    logger = ts.utils.WandbLogger(log_dir=log_path)
+    #wandb.init(entity="mdianaRLSched",project="drone",sync_tensorboard=True)
+    #log_path = os.path.join(args.logdir, args.task, 'ppo')
+    #writer = SummaryWriter(log_path)
+    #logger = ts.utils.WandbLogger(entity="mdianaRLSched",project="drone")
+    #logger.load(writer=writer)
+    #logger=ts.utils.WandbLogger(entity="mdianaRLSched",project="drone")
     #logger=ts.utils.TensorboardLogger(writer)
      # -- Logging parameters --
-    params_dict=env_cfg | obs_cfg | reward_cfg | command_cfg | args.__dict__
-    save_params_to_log(logdir=log_path,log_par=params_dict)
+    #params_dict=env_cfg | obs_cfg | reward_cfg | command_cfg | args.__dict__
+    #save_params_to_log(logdir=log_path,log_par=params_dict)
 
     genesis_logging=logLevel.INFO if args.verbose else logLevel.WARNING
 
@@ -207,135 +211,142 @@ def train_drone_ppo(args=get_args()):
     train_envs.seed(args.seed)
     test_envs.seed(args.seed)
 
+
+
+
     # --- Network Setup ---
      # Get env specs from a single instance
     args.state_shape = train_envs.observation_space.shape or train_envs.observation_space.n
     args.action_shape = train_envs.action_space.shape or train_envs.action_space.n
     args.max_action = train_envs.action_space.high[0] # Assumes symmetric [-max, max] action space after scaling
 
-    # Model
-    net_a = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device,activation=Tanh)
-    actor = ActorProb(
-        net_a, args.action_shape, unbounded=True, device=args.device
-    ).to(args.device)
-
-    net_c = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device,activation=Tanh)
-    critic = Critic(net_c, device=args.device).to(args.device)
-
-
-    # Initialize parameters correctly (orthogonal init often helps PPO)
-    torch.nn.init.constant_(actor.sigma_param, -0.5) # Initialize log_std
-    for m in list(actor.modules()) + list(critic.modules()):
-        if isinstance(m, torch.nn.Linear):
-            torch.nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
-            torch.nn.init.zeros_(m.bias)
-
-    # Optimizer
-    optim = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=args.lr)
-
-    # --- PPO Policy Setup ---
-    # Define the action distribution (Gaussian for continuous actions)
-    def dist(*logits):
-        # logits is (mu, log_sigma)
-        mu, log_sigma = logits[0]
-        sigma = torch.exp(log_sigma)
-        # Use Independent to treat dimensions as independent samples from Normal
-        return Independent(Normal(mu, sigma), 1)
-
-    policy = PPOPolicy(
-        actor=actor,
-        critic=critic,
-        optim=optim,
-        dist_fn=dist,
-        discount_factor=args.gamma,
-        gae_lambda=args.gae_lambda,
-        max_grad_norm=args.max_grad_norm,
-        vf_coef=args.vf_coef,
-        ent_coef=args.ent_coef,
-        reward_normalization=args.rew_norm,
-        action_scaling=True, # Tianshou handles action scaling to env bounds if True
-        action_bound_method=args.bound_action_method, # 'clip' or 'tanh'
-        eps_clip=args.eps_clip,
-        value_clip=False, # Typically False for PPO
-        action_space=train_envs.action_space,
-        # Note: Tianshou's PPO handles GAE calculation internally
-    ).to(args.device)
-
-    # --- Collector Setup ---
-    # Use VectorReplayBuffer for on-policy algorithms like PPO
-    train_collector = Collector(
-        policy,
-        train_envs,
-        VectorReplayBuffer(len(train_envs)*args.buffer_size_per_env, len(train_envs)), # Total buffer size across envs
-        # exploration_noise=True # Handled by policy's stochastic nature
-    )
-    test_collector = Collector(policy, test_envs)
-
- 
-    
-    
-    # --- Callback functions ---
-    def save_best_fn(policy):
-        torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth'))
-
-    early_stopper = EarlyStoppingCallback(
-        patience=10,
-        min_delta=0.1,
-        min_pct_delta=0.1,
-        warmup=15,
-        verbose=True
-    )
-
-
-    # --- Trainer ---
-    trainer = OnpolicyTrainer(
-        policy=policy,
-        train_collector=train_collector,
-        test_collector=test_collector,
-        max_epoch=args.epoch,
-        save_best_fn=save_best_fn,
-        step_per_epoch=args.step_per_epoch,
-        repeat_per_collect=args.repeat_per_collect,
-        episode_per_test=args.test_episodes, # Run test_num episodes for testing
-        batch_size=args.batch_size,
-        step_per_collect=args.step_per_collect,
-        stop_fn=early_stopper,
-        verbose=False,
-        logger=logger
-    )#.run()
-
-    early_stopper.setTrainer(trainer)
-    
+   
  
 
 
 
     # --- Run Training ---
     print(f"Starting PPO training on {args.device}")
-
+    policy=None
+    log_path=None
     def train():
-        run = wandb.init()
+        wandb.init(entity="mdianaRLSched",project="drone",sync_tensorboard=True)
+        log_path = os.path.join(args.logdir, 'DronePose'+str(datetime.now()), 'ppo')
+        writer = SummaryWriter(log_path)
+        logger = ts.utils.WandbLogger(entity="mdianaRLSched",project="drone")
+        logger.load(writer=writer)
         repeat_per_collect = wandb.config.repeat_per_collect
         step_per_epoch = wandb.config.step_per_epoch
         step_per_collect = wandb.config.step_per_collect
         bs = wandb.config.batch_size
+        lr=wandb.config.learning_rate
         
-        trainer.batch_size=bs
-        trainer.repeat_per_collect=repeat_per_collect
-        trainer.step_per_epoch=step_per_epoch
-        trainer.step_per_collect=step_per_collect
+    # Model
+        net_a = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device,activation=Tanh)
+        actor = ActorProb(
+            net_a, args.action_shape, unbounded=True, device=args.device
+        ).to(args.device)
 
+        net_c = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device,activation=Tanh)
+        critic = Critic(net_c, device=args.device).to(args.device)
+
+
+        # Initialize parameters correctly (orthogonal init often helps PPO)
+        torch.nn.init.constant_(actor.sigma_param, -0.5) # Initialize log_std
+        for m in list(actor.modules()) + list(critic.modules()):
+            if isinstance(m, torch.nn.Linear):
+                torch.nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
+                torch.nn.init.zeros_(m.bias)
+
+        # Optimizer
+        optim = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=lr)
+
+        # --- PPO Policy Setup ---
+        # Define the action distribution (Gaussian for continuous actions)
+        def dist(*logits):
+            # logits is (mu, log_sigma)
+            mu, log_sigma = logits[0]
+            sigma = torch.exp(log_sigma)
+            # Use Independent to treat dimensions as independent samples from Normal
+            return Independent(Normal(mu, sigma), 1)
+
+        policy = PPOPolicy(
+            actor=actor,
+            critic=critic,
+            optim=optim,
+            dist_fn=dist,
+            discount_factor=args.gamma,
+            gae_lambda=args.gae_lambda,
+            max_grad_norm=args.max_grad_norm,
+            vf_coef=args.vf_coef,
+            ent_coef=args.ent_coef,
+            reward_normalization=args.rew_norm,
+            action_scaling=True, # Tianshou handles action scaling to env bounds if True
+            action_bound_method=args.bound_action_method, # 'clip' or 'tanh'
+            eps_clip=args.eps_clip,
+            value_clip=False, # Typically False for PPO
+            action_space=train_envs.action_space,
+            # Note: Tianshou's PPO handles GAE calculation internally
+        ).to(args.device)
+
+        # --- Collector Setup ---
+        # Use VectorReplayBuffer for on-policy algorithms like PPO
+        train_collector = Collector(
+            policy,
+            train_envs,
+            VectorReplayBuffer(len(train_envs)*args.buffer_size_per_env, len(train_envs)), # Total buffer size across envs
+            # exploration_noise=True # Handled by policy's stochastic nature
+        )
+        test_collector = Collector(policy, test_envs)
+
+    
+        
+        
+        # --- Callback functions ---
+        def save_best_fn(policy):
+            os.makedirs(log_path,exist_ok=True)
+            torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth'))
+
+        early_stopper = EarlyStoppingCallback(
+            patience=10,
+            min_delta=0.1,
+            min_pct_delta=0.1,
+            warmup=15,
+            verbose=True
+        )
+
+
+        # --- Trainer ---
+        trainer = OnpolicyTrainer(
+            policy=policy,
+            train_collector=train_collector,
+            test_collector=test_collector,
+            max_epoch=args.epoch,
+            save_best_fn=save_best_fn,
+            step_per_epoch=step_per_epoch,
+            repeat_per_collect=repeat_per_collect,
+            episode_per_test=args.test_episodes, # Run test_num episodes for testing
+            batch_size=bs,
+            step_per_collect=step_per_collect,
+            stop_fn=early_stopper,
+            verbose=False,
+            logger=logger
+        )#.run()
+
+        early_stopper.setTrainer(trainer)
+    
         
         try:
             trainer.run()
-        except :
+        except Exception as e:
+            print(e)
             print("Stopped training")
             save_best_fn(trainer.policy)
-   
-    wandb.agent("diana-massimiliano-politecnico-di-bari/drone-ppo-navigation-target/sweeps/0fj8iuse", train, count=900)
+        print(f"Finished training! Best policy saved at {os.path.join(log_path, 'policy.pth')}")
+
+    wandb.agent("mdianaRLSched/drone/jx49i71n", train, count=900)
     #trainer.pprint_asdict()
 
-    print(f"Finished training! Best policy saved at {os.path.join(log_path, 'policy.pth')}")
 
     # --- Close environments ---
     train_envs.close()
