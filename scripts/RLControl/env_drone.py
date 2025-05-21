@@ -16,7 +16,7 @@ def gs_rand_float(lower, upper, shape, device):
 
 
 class DroneEnv(gym.Env):
-    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg,seed, show_viewer=False,device="cuda"):
+    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg,seed, show_viewer=False,device="cuda",n_render_env=None,log_level=40):
         print("In Drone ENV")
         self.device = torch.device(device)
 
@@ -69,17 +69,17 @@ class DroneEnv(gym.Env):
 
 
         if not gs._initialized:
-            gs.init(backend=gs.gpu,debug=False,precision="32")  
+            gs.init(backend=gs.gpu,debug=False,precision="32",logging_level=log_level)  
         
         self.scene = gs.Scene(
-        sim_options=gs.options.SimOptions(dt= 0.01 , substeps=2),
+        sim_options=gs.options.SimOptions(dt= 0.01 , substeps=1),
         viewer_options=gs.options.ViewerOptions(
             max_FPS=env_cfg["max_visualize_FPS"],
             camera_pos=(3.0, 0.0, 3.0),
             camera_lookat=(0.0, 0.0, 1.0),
             camera_fov=40,
         ),
-        vis_options=gs.options.VisOptions(),
+        vis_options=gs.options.VisOptions(rendered_envs_idx=n_render_env),
         rigid_options=gs.options.RigidOptions(
             dt=self.dt ,
             constraint_solver=gs.constraint_solver.Newton,
@@ -183,20 +183,34 @@ class DroneEnv(gym.Env):
     def render(self):
         pass
     def step(self, actions,ready_envs):
-        actions=torch.from_numpy(actions).to(device=self.device)
+        actions=torch.from_numpy(actions).to(device=self.device).float()
         self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
-        exec_actions = torch.zeros(self.num_envs, self.num_actions,dtype=self.actions.dtype,device=self.actions.device)
+        exec_actions = self.last_actions
         mask=np.array([x in ready_envs for x in range(self.num_envs)])
+        not_ready_envs=np.array([x for x in range(self.num_envs) if x not in ready_envs])
         #exec_actions[~self.crash_condition]=self.actions
         exec_actions[mask]=self.actions
+        
         self.actions=exec_actions
         # 14468 is hover rpm
         self.drone.set_propellels_rpm((1 + exec_actions * 0.8) * 14468.429183500699)
+
+        ### Save state for not operated agents
+        temp_pos=self.drone.get_pos()
+        temp_orientation=self.drone.get_quat()
+        
         self.scene.step()
-    
+        
+        ### Correct state for not operated agents
+        if len(not_ready_envs)>0:
+            #print(not_ready_envs)
+            self.drone.set_pos(temp_pos[not_ready_envs],not_ready_envs)
+            self.drone.set_quat(temp_orientation[not_ready_envs],not_ready_envs)
+
+
        
         # update buffers
-        self.episode_length_buf += 1
+        self.episode_length_buf[ready_envs] += 1
         self.last_base_pos[:] = self.base_pos[:]
         self.base_pos[:] = self.drone.get_pos()
         self.rel_pos = self.commands - self.base_pos
@@ -222,16 +236,18 @@ class DroneEnv(gym.Env):
             | (torch.abs(self.rel_pos[:, 2]) > self.env_cfg["termination_if_z_greater_than"])
             | (self.base_pos[:, 2] < self.env_cfg["termination_if_close_to_ground"])
         )#| self.crash_condition
-        self.terminated = (self.episode_length_buf > self.max_episode_length) | self.crash_condition
-
+        #self.terminated = (self.episode_length_buf > self.max_episode_length) | self.crash_condition
+        #self.terminated = self.crash_condition
+        self.reset_buf = (self.episode_length_buf > self.max_episode_length) | self.crash_condition
 
         time_out_idx = (self.episode_length_buf > self.max_episode_length)
         self.extras["time_outs"] = torch.zeros_like(self.reset_buf, device=self.device, dtype=gs.tc_float)
         self.extras["time_outs"][time_out_idx] = 1.0
         self.terminated=self.crash_condition.cpu().numpy()
         self.truncated=time_out_idx.cpu().numpy()
-        #self.reset_idx(self.reset_buf.nonzero(as_tuple=False).flatten())
-
+        #self.base_pos[self.crash_condition] = torch.rand((len(torch.where(self.crash_condition)), 3), device=self.device, dtype=gs.tc_float)#self.base_init_pos
+        #self.base_quat[self.crash_condition] = self.base_init_quat.reshape(1, -1)
+        self.reset_idx(self.reset_buf.nonzero(as_tuple=False).flatten())
         # compute reward
         self.rew_buf[:] = 0.0
         for name, reward_func in self.reward_functions.items():
@@ -261,6 +277,8 @@ class DroneEnv(gym.Env):
             return self._get_info()
         elif len(env_idx)==1:
             return self._get_info(env_idx)
+        elif len(env_idx)==0:
+            return np.array()
         else:
             info_redux=list()
             for ind in env_idx:
@@ -301,8 +319,8 @@ class DroneEnv(gym.Env):
             return
 
         # reset base
-        self.base_pos[env_id] = torch.rand((len(env_id), 3), device=self.device, dtype=gs.tc_float)#self.base_init_pos
-        self.last_base_pos[env_id] = self.base_pos[env_id].clone()#self.base_init_pos
+        self.base_pos[env_id] = self.base_init_pos#torch.rand((len(env_id), 3), device=self.device, dtype=gs.tc_float)#self.base_init_pos
+        self.last_base_pos[env_id] = self.base_init_pos#self.base_pos[env_id].clone()
         self.rel_pos = self.commands - self.base_pos
         self.last_rel_pos = self.commands - self.last_base_pos
         self.base_quat[env_id] = self.base_init_quat.reshape(1, -1)
@@ -328,7 +346,7 @@ class DroneEnv(gym.Env):
         self.last_actions[env_id] = 0.0
         self.episode_length_buf[env_id] = 0
         self.reset_buf[env_id] = True
-        self.crash_condition[env_id]=False
+        #self.crash_condition[env_id]=False
         # fill extras
         self.extras["episode"] = {}
         for key in self.episode_sums.keys():
@@ -341,7 +359,7 @@ class DroneEnv(gym.Env):
 
     def reset(self,env_id=None):
         if env_id is not None:
-            print(env_id)
+        
             self.reset_buf[env_id]=True
             self.reset_idx(env_id)
         else: 
@@ -359,25 +377,45 @@ class DroneEnv(gym.Env):
     # ------------ reward functions----------------
     def _reward_target(self):
         target_rew = torch.sum(torch.square(self.last_rel_pos), dim=1) - torch.sum(torch.square(self.rel_pos), dim=1)
+        nans=any(target_rew.isnan())
+        if nans:
+            print(target_rew.isnan())
+            target_rew[target_rew.isnan()]=0
         return target_rew
 
     def _reward_smooth(self):
         smooth_rew = torch.sum(torch.square(self.actions - self.last_actions), dim=1)
+        nans=any(smooth_rew.isnan())
+        if nans:
+            print(smooth_rew.isnan())
+            smooth_rew[smooth_rew.isnan()]=0
         return smooth_rew
 
     def _reward_yaw(self):
         yaw = self.base_euler[:, 2]
         yaw = torch.where(yaw > 180, yaw - 360, yaw) / 180 * 3.14159  # use rad for yaw_reward
         yaw_rew = torch.exp(self.reward_cfg["yaw_lambda"] * torch.abs(yaw))
+        nans=any(yaw_rew.isnan())
+        if nans:
+            print(yaw_rew.isnan())
+            yaw_rew[yaw_rew.isnan()]=0
         return yaw_rew
 
     def _reward_angular(self):
         angular_rew = torch.norm(self.base_ang_vel / 3.14159, dim=1)
+        nans=any(angular_rew.isnan())
+        if nans:
+            print(angular_rew.isnan())
+            angular_rew[angular_rew.isnan()]=0
         return angular_rew
 
     def _reward_crash(self):
         crash_rew = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
         crash_rew[self.crash_condition] = 1
+        nans=any(crash_rew.isnan())
+        if nans:
+            print(crash_rew.isnan())
+            crash_rew[crash_rew.isnan()]=0
         return crash_rew
     
 

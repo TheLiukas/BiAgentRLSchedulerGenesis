@@ -4,18 +4,20 @@ import torch
 import tianshou as ts
 from tianshou.utils.net.common import Net
 from tianshou.utils.net.continuous import ActorProb, Critic
+from torch.nn.modules import Tanh
+from tianshou.utils.logger.wandb import WandbLogger
 from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.env import SubprocVectorEnv
 from tianshou.trainer import OnpolicyTrainer
 from tianshou.policy import PPOPolicy
 from torch.utils.tensorboard import SummaryWriter
+import logging as logLevel
 import numpy as np
 from env_drone import DroneEnv
 import os
 import argparse
 
 from torch.distributions import Independent, Normal
-from hover_env import HoverEnv
 from earlystoppingclass import EarlyStoppingCallback
 
 
@@ -29,33 +31,37 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--task', type=str, default='DronePose'+str(datetime.now()))
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--buffer-size', type=int, default=4096) # PPO typically uses steps_per_collect
+    parser.add_argument('--buffer-size-per-env', type=int, default=10000) 
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[128, 128])
-    parser.add_argument('--lr', type=float, default=3e-4)
+    parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--gamma', type=float, default=0.99)
-    parser.add_argument('--epoch', type=int, default=100)
-    parser.add_argument('--step-per-epoch', type=int, default=30000)
+    parser.add_argument('--epoch', type=int, default=10)
+    parser.add_argument('--step-per-epoch', type=int, default=301000)
     
     # PPO specific arguments
     parser.add_argument('--repeat-per-collect', type=int, default=10) # PPO updates per data collection
-    parser.add_argument('--batch-size', type=int, default=256) # Mini-batch size for PPO updates
-    parser.add_argument('--step-per-collect', type=int, default=2048) # Steps collected before update
+    parser.add_argument('--batch-size', type=int, default=4) # Mini-batch size for PPO updates
+    parser.add_argument('--step-per-collect', type=int, default=2040) # Steps collected before update
     parser.add_argument('--vf-coef', type=float, default=0.5) # Value function loss coefficient
     parser.add_argument('--ent-coef', type=float, default=0.01) # Entropy coefficient
     parser.add_argument('--eps-clip', type=float, default=0.2) # PPO clipping epsilon
     parser.add_argument('--gae-lambda', type=float, default=0.95) # Generalized Advantage Estimation lambda
     parser.add_argument('--rew-norm', type=int, default=0) # Reward normalization
     parser.add_argument('--bound-action-method', type=str, default="clip") # Action bounding
-    parser.add_argument('--max-grad-norm', type=float, default=0.5)
+    parser.add_argument('--max-grad-norm', type=float, default=1.0)
 
-    parser.add_argument('--training-num', type=int, default=8192) # Number of parallel envs for training
-    parser.add_argument('--test-num', type=int, default=100) # Number of parallel envs for testing
+    # Trainer
+
+    parser.add_argument('--training-num', type=int, default=10) # Number of parallel envs for training
+    parser.add_argument('--test-num', type=int, default=10) # Number of parallel envs for testing
+    parser.add_argument('--test-episodes', type=int, default=10)
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument('--render', type=float, default=0) # Not used in this setup directly
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
-    parser.add_argument("-e", "--exp_name", type=str, default="drone-hovering_"+str(datetime.now()))
-    parser.add_argument("-B", "--num_envs", type=int, default=8192)
-    parser.add_argument("--max_iterations", type=int, default=30000)
+    
+    # Genesis
+    parser.add_argument("-v", "--verbose", action="store_true", default=False)
+
     args = parser.parse_args()
     return args
 
@@ -113,13 +119,13 @@ def get_cfgs():
         "termination_if_roll_greater_than": 180,  # degree
         "termination_if_pitch_greater_than": 180,
         "termination_if_close_to_ground": 0.1,
-        "termination_if_x_greater_than": 4.0,
-        "termination_if_y_greater_than": 4.0,
+        "termination_if_x_greater_than": 3.0,
+        "termination_if_y_greater_than": 3.0,
         "termination_if_z_greater_than": 2.0,
         # base pose
         "base_init_pos": [0.0, 0.0, 1.0],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
-        "episode_length_s": 1000.0,
+        "episode_length_s": 15.0,
         "at_target_threshold": 0.1,
         "clip_actions": 1.0,
         # visualization
@@ -138,11 +144,11 @@ def get_cfgs():
     reward_cfg = {
         "yaw_lambda": -10.0,
         "reward_scales": {
-            "target": 100.0,
-            "smooth": -1e-4,
-            "yaw": 0.01,
+            "target": 10.0,
+            "smooth": -1e-2,
+            "yaw": 0.1,
             "angular": -2e-4,
-            "crash": -150.0,
+            "crash": -15.0,
         },
     }
     command_cfg = {
@@ -163,10 +169,13 @@ def train_drone_ppo(args=get_args()):
     # --- Logger ---
     log_path = os.path.join(args.logdir, args.task, 'ppo')
     writer = SummaryWriter(log_path)
-    logger = ts.utils.TensorboardLogger(writer)
+    #logger = ts.utils.WandbLogger(log_dir=log_path)
+    logger=ts.utils.TensorboardLogger(writer)
      # -- Logging parameters --
     params_dict=env_cfg | obs_cfg | reward_cfg | command_cfg | args.__dict__
     save_params_to_log(logdir=log_path,log_par=params_dict)
+
+    genesis_logging=logLevel.INFO if args.verbose else logLevel.WARNING
 
     train_envs = DroneEnv(  num_envs=args.training_num,
         env_cfg=env_cfg,
@@ -174,7 +183,9 @@ def train_drone_ppo(args=get_args()):
         reward_cfg=reward_cfg,
         command_cfg=command_cfg,
         show_viewer=False,
-        device="cuda",seed=args.seed
+        device="cuda",seed=args.seed,
+        n_render_env=[0],
+        log_level=genesis_logging
     )
     test_envs= DroneEnv(  num_envs=args.test_num,
         env_cfg=env_cfg,
@@ -182,7 +193,9 @@ def train_drone_ppo(args=get_args()):
         reward_cfg=reward_cfg,
         command_cfg=command_cfg,
         show_viewer=False,
-        device="cuda",seed=args.seed
+        device="cuda",seed=args.seed,
+        n_render_env=[0],
+        log_level=genesis_logging
     )
 
 
@@ -199,12 +212,12 @@ def train_drone_ppo(args=get_args()):
     args.max_action = train_envs.action_space.high[0] # Assumes symmetric [-max, max] action space after scaling
 
     # Model
-    net_a = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+    net_a = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device,activation=Tanh)
     actor = ActorProb(
         net_a, args.action_shape, unbounded=True, device=args.device
     ).to(args.device)
 
-    net_c = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+    net_c = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device,activation=Tanh)
     critic = Critic(net_c, device=args.device).to(args.device)
 
 
@@ -251,7 +264,7 @@ def train_drone_ppo(args=get_args()):
     train_collector = Collector(
         policy,
         train_envs,
-        VectorReplayBuffer(args.buffer_size, len(train_envs)), # Total buffer size across envs
+        VectorReplayBuffer(len(train_envs)*args.buffer_size_per_env, len(train_envs)), # Total buffer size across envs
         # exploration_noise=True # Handled by policy's stochastic nature
     )
     test_collector = Collector(policy, test_envs)
@@ -264,10 +277,10 @@ def train_drone_ppo(args=get_args()):
         torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth'))
 
     early_stopper = EarlyStoppingCallback(
-        patience=20,
+        patience=10,
         min_delta=0.1,
-        min_pct_delta=0.05,
-        warmup=30,
+        min_pct_delta=0.1,
+        warmup=15,
         verbose=True
     )
 
@@ -281,10 +294,11 @@ def train_drone_ppo(args=get_args()):
         save_best_fn=save_best_fn,
         step_per_epoch=args.step_per_epoch,
         repeat_per_collect=args.repeat_per_collect,
-        episode_per_test=args.test_num, # Run test_num episodes for testing
+        episode_per_test=args.test_episodes, # Run test_num episodes for testing
         batch_size=args.batch_size,
         step_per_collect=args.step_per_collect,
         stop_fn=early_stopper,
+        verbose=False,
         logger=logger
     )#.run()
 
@@ -296,8 +310,11 @@ def train_drone_ppo(args=get_args()):
 
     # --- Run Training ---
     print(f"Starting PPO training on {args.device}")
-    trainer.run()
-    
+    try:
+        trainer.run()
+    except :
+        print("Stopped training")
+        save_best_fn(trainer.policy)
    
  
     #trainer.pprint_asdict()
