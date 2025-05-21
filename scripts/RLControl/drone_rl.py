@@ -6,6 +6,7 @@ from tianshou.utils.net.common import Net
 from tianshou.utils.net.continuous import ActorProb, Critic
 from torch.nn.modules import Tanh
 from tianshou.utils.logger.wandb import WandbLogger
+import wandb
 from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.env import SubprocVectorEnv
 from tianshou.trainer import OnpolicyTrainer
@@ -52,7 +53,7 @@ def get_args():
 
     # Trainer
 
-    parser.add_argument('--training-num', type=int, default=10) # Number of parallel envs for training
+    parser.add_argument('--training-num', type=int, default=100) # Number of parallel envs for training
     parser.add_argument('--test-num', type=int, default=10) # Number of parallel envs for testing
     parser.add_argument('--test-episodes', type=int, default=10)
     parser.add_argument('--logdir', type=str, default='log')
@@ -168,9 +169,10 @@ def train_drone_ppo(args=get_args()):
     env_cfg, obs_cfg, reward_cfg, command_cfg = get_cfgs()
     # --- Logger ---
     log_path = os.path.join(args.logdir, args.task, 'ppo')
-    writer = SummaryWriter(log_path)
-    #logger = ts.utils.WandbLogger(log_dir=log_path)
-    logger=ts.utils.TensorboardLogger(writer)
+    #writer = SummaryWriter(log_path)
+    wandb.login()
+    logger = ts.utils.WandbLogger(log_dir=log_path)
+    #logger=ts.utils.TensorboardLogger(writer)
      # -- Logging parameters --
     params_dict=env_cfg | obs_cfg | reward_cfg | command_cfg | args.__dict__
     save_params_to_log(logdir=log_path,log_par=params_dict)
@@ -310,13 +312,27 @@ def train_drone_ppo(args=get_args()):
 
     # --- Run Training ---
     print(f"Starting PPO training on {args.device}")
-    try:
-        trainer.run()
-    except :
-        print("Stopped training")
-        save_best_fn(trainer.policy)
+
+    def train():
+        run = wandb.init()
+        repeat_per_collect = wandb.config.repeat_per_collect
+        step_per_epoch = wandb.config.step_per_epoch
+        step_per_collect = wandb.config.step_per_collect
+        bs = wandb.config.batch_size
+        
+        trainer.batch_size=bs
+        trainer.repeat_per_collect=repeat_per_collect
+        trainer.step_per_epoch=step_per_epoch
+        trainer.step_per_collect=step_per_collect
+
+        
+        try:
+            trainer.run()
+        except :
+            print("Stopped training")
+            save_best_fn(trainer.policy)
    
- 
+    wandb.agent("diana-massimiliano-politecnico-di-bari/drone-ppo-navigation-target/sweeps/0fj8iuse", train, count=900)
     #trainer.pprint_asdict()
 
     print(f"Finished training! Best policy saved at {os.path.join(log_path, 'policy.pth')}")

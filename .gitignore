@@ -1,6 +1,6 @@
 examples
 scripts/RLControl/hover_env.py
-scripts/RLControl/sweep*.*
+
 .vscode
 genesis
 __pycache__
@@ -11,3 +11,5 @@ logs
 scripts/drone_env.py
 
 docker/wanddb_api_key
+scripts/RLControl/sweep_LSTM_generator.ipynb
+scripts/RLControl/sweepy_LSTM.py
